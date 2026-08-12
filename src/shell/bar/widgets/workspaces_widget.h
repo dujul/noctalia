@@ -49,6 +49,7 @@ public:
     float activePillSize = 2.2F;
     float inactivePillSize = 1.0F;
     bool focusedOutputOnly = false;
+    bool showIcons = false;
   };
 
   WorkspacesWidget(CompositorPlatform& platform, ConfigService& config, wl_output* output, Options options);
@@ -80,6 +81,10 @@ private:
   [[nodiscard]] static std::optional<std::size_t> numericWorkspaceId(const Workspace& workspace);
   [[nodiscard]] std::string workspaceLabel(const Workspace& workspace, std::size_t displayIndex) const;
   [[nodiscard]] std::string activeWindowAppId() const;
+  [[nodiscard]] std::unordered_map<std::string, std::string>
+  computeFirstWindowAppIds(const std::vector<Workspace>& workspaces) const;
+  [[nodiscard]] std::string firstWindowAppId(const Workspace& workspace) const;
+  [[nodiscard]] bool shouldShowWorkspaceIcon(const Workspace& workspace) const;
   [[nodiscard]] std::string resolveIconPath(const std::string& appId);
   [[nodiscard]] float focusedPillIconSize() const noexcept;
   [[nodiscard]] float focusedPillDotSize() const noexcept;
@@ -87,7 +92,7 @@ private:
       float textWidth, float textHeight, bool showLabel, bool hasIcon, float baseSize, float padding
   ) const noexcept;
   void buildDesktopIconIndex();
-  void syncActiveWindowIcon(Renderer& renderer, Item& item);
+  void syncItemIcon(Renderer& renderer, Item& item);
   [[nodiscard]] bool shouldShowWorkspaceLabel(const Workspace& workspace, std::string_view label) const noexcept;
   [[nodiscard]] bool isMinimal() const noexcept { return m_style == WorkspacesStyle::Minimal; }
   [[nodiscard]] bool isFocusHint() const noexcept { return m_style == WorkspacesStyle::FocusHint; }
@@ -158,10 +163,12 @@ private:
   float m_inactivePillSize = 1.0F;
   WorkspacesStyle m_style = WorkspacesStyle::Regular;
   bool m_focusedOutputOnly = false;
+  bool m_showIcons = false;
   bool m_changeColorOnHover = true;
   bool m_wasFocusedOutput = true;
   bool m_activeUsesFocusedColor = true;
   std::string m_cachedActiveWindowAppId;
+  std::unordered_map<std::string, std::string> m_firstWindowAppIdByWorkspace;
   IconResolver m_iconResolver;
   std::unordered_map<std::string, std::string> m_appIcons;
   std::uint64_t m_desktopEntriesVersion = 0;

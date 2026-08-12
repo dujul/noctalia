@@ -34,6 +34,14 @@ namespace {
     return visibility;
   }
 
+  // FocusHint has its own dedicated active-window icon; this toggle only applies
+  // to the styles that otherwise show no icon at all.
+  settings::WidgetSettingVisibility notFocusHintStyle() {
+    settings::WidgetSettingVisibility visibility;
+    visibility.all = {{"style", {"regular", "minimal"}}};
+    return visibility;
+  }
+
 } // namespace
 
 const noctalia::bar::WidgetDefinition<WorkspacesWidget::Options>& workspacesWidgetDefinition() {
@@ -57,6 +65,15 @@ const noctalia::bar::WidgetDefinition<WorkspacesWidget::Options>& workspacesWidg
                   .presentation =
                       settings::WidgetSettingPresentation{
                           .group = "workspaces.list",
+                      },
+              }),
+              field<&Options::showIcons>({
+                  .key = "show_icons",
+                  .presentation =
+                      settings::WidgetSettingPresentation{
+                          .descriptionKey = "settings.widgets.settings.show-icons.workspaces-description",
+                          .group = "workspaces.list",
+                          .visibleWhen = notFocusHintStyle(),
                       },
               }),
               field<&Options::labelSource>({

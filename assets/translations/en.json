@@ -3709,6 +3709,11 @@
           "description": "Show the widget glyph or custom image",
           "label": "Show Glyph"
         },
+        "show-icons": {
+          "description": "Show the icon of each workspace's first window",
+          "label": "Show Icons",
+          "workspaces-description": "Show the icon of each workspace's first window instead of its label"
+        },
         "show-label": {
           "description": "Show the widget's text label",
           "label": "Show Label"

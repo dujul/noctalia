@@ -81,7 +81,8 @@ WorkspacesWidget::WorkspacesWidget(
       m_labelsOnlyWhenOccupied(options.labelsOnlyWhenOccupied), m_hideWhenEmpty(options.hideWhenEmpty),
       m_pillScale(options.pillScale), m_activePillSize(std::clamp(options.activePillSize, 0.25F, 8.0F)),
       m_inactivePillSize(std::clamp(options.inactivePillSize, 0.25F, 8.0F)), m_style(options.style),
-      m_focusedOutputOnly(options.focusedOutputOnly), m_changeColorOnHover(options.changeColorOnHover),
+      m_focusedOutputOnly(options.focusedOutputOnly), m_showIcons(options.showIcons),
+      m_changeColorOnHover(options.changeColorOnHover),
       m_focusedColor(options.focusedColor), m_occupiedColor(options.occupiedColor), m_emptyColor(options.emptyColor),
       m_urgentColor(options.urgentColor) {
   buildDesktopIconIndex();
@@ -96,6 +97,9 @@ bool WorkspacesWidget::shouldShowWorkspaceLabel(const Workspace& workspace, std:
   }
   if (isFocusHint()) {
     return workspace.active && (!label.empty() || !activeWindowAppId().empty());
+  }
+  if (shouldShowWorkspaceIcon(workspace)) {
+    return false;
   }
   if (label.empty()) {
     return false;
@@ -185,9 +189,9 @@ bool WorkspacesWidget::releaseHeldVisualStyles() {
 }
 
 void WorkspacesWidget::doUpdate(Renderer& renderer) {
-  if (m_iconColorizeRefreshPending && isFocusHint()) {
+  if (m_iconColorizeRefreshPending && (isFocusHint() || m_showIcons)) {
     for (auto& item : m_items) {
-      syncActiveWindowIcon(renderer, item);
+      syncItemIcon(renderer, item);
     }
     m_iconColorizeRefreshPending = false;
     if (root() != nullptr) {
@@ -239,15 +243,24 @@ void WorkspacesWidget::doUpdate(Renderer& renderer) {
   bool structuralChange = current.size() != m_cachedState.size();
   bool activeChange = false;
   bool hideWhenEmptyTransition = false;
-  if (isFocusHint()) {
+  if (isFocusHint() || m_showIcons) {
     const auto desktopVersion = desktopEntriesVersion();
     if (desktopVersion != m_desktopEntriesVersion) {
       buildDesktopIconIndex();
       activeChange = true;
     }
+  }
+  if (isFocusHint()) {
     const std::string nextActiveWindowAppId = activeWindowAppId();
     if (nextActiveWindowAppId != m_cachedActiveWindowAppId) {
       m_cachedActiveWindowAppId = nextActiveWindowAppId;
+      activeChange = true;
+    }
+  }
+  if (m_showIcons && !isFocusHint()) {
+    auto nextFirstWindowAppIds = computeFirstWindowAppIds(current);
+    if (nextFirstWindowAppIds != m_firstWindowAppIdByWorkspace) {
+      m_firstWindowAppIdByWorkspace = std::move(nextFirstWindowAppIds);
       activeChange = true;
     }
   }
@@ -336,6 +349,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     std::string key;
     std::string label;
     bool showLabel = false;
+    bool showIcon = false;
     bool exiting = false;
     const ItemSnapshot* snapshot = nullptr;
   };
@@ -392,6 +406,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
               .key = key,
               .label = label,
               .showLabel = shouldShowWorkspaceLabel(workspace, label),
+              .showIcon = shouldShowWorkspaceIcon(workspace),
               .exiting = false,
               .snapshot = snapshotIndex.has_value() ? &m_rebuildSnapshot[*snapshotIndex] : nullptr,
           }
@@ -412,6 +427,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
               .key = workspaceIdentityKey(workspace),
               .label = label,
               .showLabel = shouldShowWorkspaceLabel(workspace, label),
+              .showIcon = shouldShowWorkspaceIcon(workspace),
           }
       );
     }
@@ -453,6 +469,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     auto& entry = entries[i];
     if (!entry.exiting && isWorkspaceHidden(entry.workspace)) {
       entry.showLabel = false;
+      entry.showIcon = false;
       slot.inactiveWidth = 0.0F;
       slot.activeWidth = 0.0F;
       continue;
@@ -460,7 +477,11 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
 
     if (isMinimal()) {
       const float minWidth = baseSize;
-      if (!entry.showLabel) {
+      if (entry.showIcon) {
+        const float iconBasedWidth = focusedPillIconSize() + padding * 2.0F;
+        slot.inactiveWidth = std::max(minWidth, iconBasedWidth);
+        slot.activeWidth = slot.inactiveWidth;
+      } else if (!entry.showLabel) {
         slot.inactiveWidth = minWidth;
         slot.activeWidth = minWidth;
       } else {
@@ -494,7 +515,11 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     const float minWidth = workspaceMainAxisMinWidth(baseSize, false);
     const float minActiveWidth = workspaceMainAxisMinWidth(baseSize, true);
 
-    if (!entry.showLabel) {
+    if (entry.showIcon) {
+      const float iconBasedWidth = focusedPillIconSize() + padding;
+      slot.inactiveWidth = std::max(minWidth, iconBasedWidth);
+      slot.activeWidth = std::max(minActiveWidth, iconBasedWidth);
+    } else if (!entry.showLabel) {
       slot.inactiveWidth = minWidth;
       slot.activeWidth = minActiveWidth;
     } else {
@@ -567,7 +592,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
       item.text->measure(renderer);
     }
 
-    if (isFocusHint() && ws.active) {
+    if ((isFocusHint() && ws.active) || entry.showIcon) {
       item.showIcon = true;
       item.icon = static_cast<Image*>(area->addChild(
           ui::image({
@@ -577,7 +602,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
               .height = focusedPillIconSize(),
           })
       ));
-      syncActiveWindowIcon(renderer, item);
+      syncItemIcon(renderer, item);
     }
 
     InputArea* areaPtr = area.get();
@@ -816,6 +841,7 @@ void WorkspacesWidget::recalculateItemMetrics(
 
   item.label = label;
   item.showLabel = shouldShowWorkspaceLabel(workspace, label);
+  const bool showIcon = shouldShowWorkspaceIcon(workspace);
 
   if (isWorkspaceHidden(workspace)) {
     item.inactiveWidth = 0.0F;
@@ -837,7 +863,11 @@ void WorkspacesWidget::recalculateItemMetrics(
 
   if (isMinimal()) {
     const float minWidth = baseSize;
-    if (!item.showLabel) {
+    if (showIcon) {
+      const float iconBasedWidth = focusedPillIconSize() + padding * 2.0F;
+      item.inactiveWidth = std::max(minWidth, iconBasedWidth);
+      item.activeWidth = item.inactiveWidth;
+    } else if (!item.showLabel) {
       item.inactiveWidth = minWidth;
       item.activeWidth = minWidth;
     } else {
@@ -859,7 +889,11 @@ void WorkspacesWidget::recalculateItemMetrics(
   } else {
     const float minWidth = workspaceMainAxisMinWidth(baseSize, false);
     const float minActiveWidth = workspaceMainAxisMinWidth(baseSize, true);
-    if (!item.showLabel) {
+    if (showIcon) {
+      const float iconBasedWidth = focusedPillIconSize() + padding;
+      item.inactiveWidth = std::max(minWidth, iconBasedWidth);
+      item.activeWidth = std::max(minActiveWidth, iconBasedWidth);
+    } else if (!item.showLabel) {
       item.inactiveWidth = minWidth;
       item.activeWidth = minActiveWidth;
     } else {
@@ -870,7 +904,7 @@ void WorkspacesWidget::recalculateItemMetrics(
   }
 
   ensureItemLabel(renderer, item, workspace);
-  if (isFocusHint() && workspace.active && item.icon == nullptr && item.area != nullptr) {
+  if (((isFocusHint() && workspace.active) || showIcon) && item.icon == nullptr && item.area != nullptr) {
     item.showIcon = true;
     item.icon = static_cast<Image*>(item.area->addChild(
         ui::image({
@@ -881,7 +915,7 @@ void WorkspacesWidget::recalculateItemMetrics(
         })
     ));
   }
-  syncActiveWindowIcon(renderer, item);
+  syncItemIcon(renderer, item);
   if (item.text != nullptr) {
     item.text->setVisible(item.showLabel);
     if (item.showLabel) {
@@ -1108,8 +1142,8 @@ void WorkspacesWidget::applyItemLayout(Item& it) {
       && !it.label.empty()
       && it.currentWidth + 0.5F >= it.inactiveWidth
       && (!isFocusHint() || it.workspace.active);
-  const bool showIcon =
-      isFocusHint() && it.workspace.active && it.showIcon && it.icon != nullptr && it.icon->hasImage();
+  const bool showIcon = (isFocusHint() ? it.workspace.active : m_showIcons) && it.showIcon && it.icon != nullptr
+      && it.icon->hasImage();
   if (it.text != nullptr) {
     it.text->setVisible(showText);
   }
@@ -1235,6 +1269,45 @@ std::string WorkspacesWidget::activeWindowAppId() const {
   return active->appId;
 }
 
+std::unordered_map<std::string, std::string>
+WorkspacesWidget::computeFirstWindowAppIds(const std::vector<Workspace>& workspaces) const {
+  std::unordered_map<std::string, std::string> result;
+  const auto assignments = m_platform.workspaceWindowAssignments(m_output);
+  if (assignments.empty()) {
+    return result;
+  }
+
+  std::unordered_map<std::string, const WorkspaceWindowAssignment*> firstByKey;
+  for (const auto& workspace : workspaces) {
+    const std::string key = workspaceIdentityKey(workspace);
+    if (key.empty()) {
+      continue;
+    }
+    const WorkspaceWindowAssignment* first = nullptr;
+    for (const auto& assignment : assignments) {
+      if (assignment.appId.empty() || !workspaceKeyMatchesAssignment(assignment.workspaceKey, workspace)) {
+        continue;
+      }
+      if (first == nullptr || assignment.y < first->y || (assignment.y == first->y && assignment.x < first->x)) {
+        first = &assignment;
+      }
+    }
+    if (first != nullptr) {
+      result.emplace(key, first->appId);
+    }
+  }
+  return result;
+}
+
+std::string WorkspacesWidget::firstWindowAppId(const Workspace& workspace) const {
+  const auto it = m_firstWindowAppIdByWorkspace.find(workspaceIdentityKey(workspace));
+  return it != m_firstWindowAppIdByWorkspace.end() ? it->second : std::string{};
+}
+
+bool WorkspacesWidget::shouldShowWorkspaceIcon(const Workspace& workspace) const {
+  return m_showIcons && !isFocusHint() && !firstWindowAppId(workspace).empty();
+}
+
 float WorkspacesWidget::focusedPillIconSize() const noexcept {
   return Style::baseGlyphSize * 0.75F * m_contentScale * m_pillScale;
 }
@@ -1344,12 +1417,13 @@ std::string WorkspacesWidget::resolveIconPath(const std::string& appId) {
   return resolveByName(appId);
 }
 
-void WorkspacesWidget::syncActiveWindowIcon(Renderer& renderer, Item& item) {
-  if (!isFocusHint() || item.icon == nullptr) {
+void WorkspacesWidget::syncItemIcon(Renderer& renderer, Item& item) {
+  if (item.icon == nullptr) {
     return;
   }
 
-  if (!item.workspace.active) {
+  const bool wantsIcon = isFocusHint() ? item.workspace.active : shouldShowWorkspaceIcon(item.workspace);
+  if (!wantsIcon) {
     item.showIcon = false;
     if (!item.iconPath.empty() || item.icon->hasImage()) {
       item.iconPath.clear();
@@ -1362,7 +1436,7 @@ void WorkspacesWidget::syncActiveWindowIcon(Renderer& renderer, Item& item) {
   item.showIcon = true;
   item.icon->setAppIconColorization(effectiveShellAppIconColorizationTint(m_configService.config().shell));
 
-  const std::string appId = activeWindowAppId();
+  const std::string appId = isFocusHint() ? activeWindowAppId() : firstWindowAppId(item.workspace);
   const std::string iconPath = appId.empty() ? std::string{} : resolveIconPath(appId);
   const bool forceReload = m_iconColorizeRefreshPending;
   if (!forceReload && iconPath == item.iconPath) {
