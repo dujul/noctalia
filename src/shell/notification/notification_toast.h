@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+class CompositorPlatform;
 class ConfigService;
 class HttpClient;
 class Input;
@@ -39,7 +40,7 @@ public:
 
   void initialize(
       WaylandConnection& wayland, ConfigService* config, NotificationManager* notifications,
-      RenderContext* renderContext, HttpClient* httpClient = nullptr
+      RenderContext* renderContext, CompositorPlatform* platform, HttpClient* httpClient = nullptr
   );
   void onConfigReload();
   void onOutputChange();
@@ -56,6 +57,7 @@ private:
   struct PopupEntry {
     uint32_t notificationId = 0;
     std::string appName;
+    std::string desktopEntry;
     std::string summary;
     std::string body;
     std::vector<std::string> actions;
@@ -194,6 +196,7 @@ private:
   ConfigService* m_config = nullptr;
   NotificationManager* m_notifications = nullptr;
   RenderContext* m_renderContext = nullptr;
+  CompositorPlatform* m_platform = nullptr;
   HttpClient* m_httpClient = nullptr;
 
   std::vector<PopupEntry> m_entries;

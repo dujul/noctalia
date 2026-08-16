@@ -1,5 +1,6 @@
 #include "shell/notification/notification_toast.h"
 
+#include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
@@ -24,6 +25,7 @@
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
+#include "wayland/wayland_toplevels.h"
 
 #include <algorithm>
 #include <cmath>
@@ -86,6 +88,27 @@ namespace {
       }
     }
     return i18n::tr("notifications.inline-reply.placeholder");
+  }
+
+  // Finds a running window matching the notification's desktop-entry hint and activates it,
+  // mirroring the activatable-window selection used by Dock::activateOrLaunchItem.
+  bool focusWindowForDesktopEntry(CompositorPlatform& platform, const std::string& desktopEntry) {
+    if (desktopEntry.empty()) {
+      return false;
+    }
+    const std::string idLower = StringUtils::toLower(desktopEntry);
+    auto windows = platform.enrichedWindowsForApp(idLower, /*wmClassLower=*/"", /*outputFilter=*/nullptr);
+    const ToplevelInfo* best = nullptr;
+    for (const auto& w : windows) {
+      if (w.handle != nullptr || !w.identifier.empty()) {
+        best = &w; // last (newest) activatable window wins
+      }
+    }
+    if (best == nullptr) {
+      return false;
+    }
+    platform.activateToplevelInfo(*best);
+    return true;
   }
 
   // Maps normalized Notify expire_timeout (see normalizeNotifyExpireTimeout) to toast ms.
@@ -501,12 +524,13 @@ NotificationToast::~NotificationToast() {
 
 void NotificationToast::initialize(
     WaylandConnection& wayland, ConfigService* config, NotificationManager* notifications, RenderContext* renderContext,
-    HttpClient* httpClient
+    CompositorPlatform* platform, HttpClient* httpClient
 ) {
   m_wayland = &wayland;
   m_config = config;
   m_notifications = notifications;
   m_renderContext = renderContext;
+  m_platform = platform;
   m_httpClient = httpClient;
 
   m_callbackToken = m_notifications->addEventCallback([this](const Notification& n, NotificationEvent event) {
@@ -830,6 +854,7 @@ void NotificationToast::addPopup(const Notification& n) {
   PopupEntry entry;
   entry.notificationId = n.id;
   entry.appName = notificationDisplayAppName(n);
+  entry.desktopEntry = n.desktopEntry.value_or("");
   entry.summary = n.summary;
   entry.body = n.body;
   entry.actions = n.actions;
@@ -2241,17 +2266,24 @@ InputArea* NotificationToast::buildCard(
 
   auto viewport = ui::inputArea({});
   viewport->setAcceptedButtons(InputArea::buttonMask({BTN_LEFT, BTN_RIGHT}));
-  viewport->setOnClick([this, id = entry.notificationId,
+  viewport->setOnClick([this, id = entry.notificationId, desktopEntry = entry.desktopEntry, platform = m_platform,
                         hasDefaultAction = !entry.actions.empty()
                             && entry.actions.size() >= 2
                             && entry.actions[0] == "default"](const InputArea::PointerData& data) {
     if (data.button == BTN_RIGHT) {
       requestClose(id, CloseReason::Dismissed);
-    } else if (data.button == BTN_LEFT && hasDefaultAction) {
-      if (m_notifications != nullptr) {
-        if (!m_notifications->invokeAction(id, "default", true)) {
-          kLog.warn("notification toast: failed to invoke default action for #{}", id);
+    } else if (data.button == BTN_LEFT) {
+      // Activate the sending app's window ourselves rather than relying on it to raise itself
+      // in response to the default action (many apps, e.g. Discord, don't).
+      const bool focused = platform != nullptr && focusWindowForDesktopEntry(*platform, desktopEntry);
+      if (hasDefaultAction) {
+        if (m_notifications != nullptr) {
+          if (!m_notifications->invokeAction(id, "default", true)) {
+            kLog.warn("notification toast: failed to invoke default action for #{}", id);
+          }
         }
+      } else if (focused) {
+        requestClose(id, CloseReason::Dismissed);
       }
     }
   });
