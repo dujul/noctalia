@@ -15,7 +15,7 @@ after updating and adding local changes
 
 #### release
 ```just build release```
-```just build install```
+```just install release```
 
 ```which noctalia``` or ```noctalia```
 /home/juna/.local/bin/noctalia
