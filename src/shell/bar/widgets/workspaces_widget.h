@@ -112,6 +112,7 @@ private:
     InputArea* area = nullptr;
     Box* indicator = nullptr;
     Label* text = nullptr;
+    Box* iconBacking = nullptr;
     Image* icon = nullptr;
     Workspace workspace;
     Workspace visualWorkspace;

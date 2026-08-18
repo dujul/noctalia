@@ -34,6 +34,8 @@ namespace {
   constexpr float kWorkspaceGap = Style::spaceXs;
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
   constexpr float kWorkspaceAnimDurationMs = static_cast<float>(Style::animNormal);
+  constexpr float kIconBackingScale = 1.3F;
+  constexpr float kIconBackingAlpha = 0.18F;
 
   [[nodiscard]] constexpr float workspaceLabelFontSize(bool minimal) {
     return minimal ? Style::fontSizeBody : Style::fontSizeMini;
@@ -594,6 +596,14 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
 
     if ((isFocusHint() && ws.active) || entry.showIcon) {
       item.showIcon = true;
+      item.iconBacking = static_cast<Box*>(area->addChild(
+          ui::box({
+              .fill = colorSpecFromRole(ColorRole::Shadow, kIconBackingAlpha),
+              .width = focusedPillIconSize() * kIconBackingScale,
+              .height = focusedPillIconSize() * kIconBackingScale,
+              .configure = [](Box& box) { box.clearBorder(); },
+          })
+      ));
       item.icon = static_cast<Image*>(area->addChild(
           ui::image({
               .fit = ImageFit::Contain,
@@ -906,6 +916,14 @@ void WorkspacesWidget::recalculateItemMetrics(
   ensureItemLabel(renderer, item, workspace);
   if (((isFocusHint() && workspace.active) || showIcon) && item.icon == nullptr && item.area != nullptr) {
     item.showIcon = true;
+    item.iconBacking = static_cast<Box*>(item.area->addChild(
+        ui::box({
+            .fill = colorSpecFromRole(ColorRole::Shadow, kIconBackingAlpha),
+            .width = focusedPillIconSize() * kIconBackingScale,
+            .height = focusedPillIconSize() * kIconBackingScale,
+            .configure = [](Box& box) { box.clearBorder(); },
+        })
+    ));
     item.icon = static_cast<Image*>(item.area->addChild(
         ui::image({
             .fit = ImageFit::Contain,
@@ -1150,6 +1168,9 @@ void WorkspacesWidget::applyItemLayout(Item& it) {
   if (it.icon != nullptr) {
     it.icon->setVisible(showIcon);
   }
+  if (it.iconBacking != nullptr) {
+    it.iconBacking->setVisible(showIcon);
+  }
   if (!showText && !showIcon) {
     return;
   }
@@ -1171,8 +1192,16 @@ void WorkspacesWidget::applyItemLayout(Item& it) {
     }
     if (showIcon) {
       it.icon->setSize(iconSize, iconSize);
-      const float iconX = contentX + (contentWidth - iconSize) * 0.5F;
-      it.icon->setPosition(std::max(0.0F, iconX), cursorY);
+      const float iconX = std::max(0.0F, contentX + (contentWidth - iconSize) * 0.5F);
+      const float iconY = cursorY;
+      it.icon->setPosition(iconX, iconY);
+      if (it.iconBacking != nullptr) {
+        const float backingSize = iconSize * kIconBackingScale;
+        const float backingInset = (backingSize - iconSize) * 0.5F;
+        it.iconBacking->setFrameSize(backingSize, backingSize);
+        it.iconBacking->setPosition(iconX - backingInset, iconY - backingInset);
+        it.iconBacking->setRadius(backingSize * 0.5F);
+      }
     }
     return;
   }
@@ -1191,7 +1220,16 @@ void WorkspacesWidget::applyItemLayout(Item& it) {
   }
   if (showIcon) {
     it.icon->setSize(iconSize, iconSize);
-    it.icon->setPosition(std::max(0.0F, cursorX), contentY + (contentHeight - iconSize) * 0.5F);
+    const float iconX = std::max(0.0F, cursorX);
+    const float iconY = contentY + (contentHeight - iconSize) * 0.5F;
+    it.icon->setPosition(iconX, iconY);
+    if (it.iconBacking != nullptr) {
+      const float backingSize = iconSize * kIconBackingScale;
+      const float backingInset = (backingSize - iconSize) * 0.5F;
+      it.iconBacking->setFrameSize(backingSize, backingSize);
+      it.iconBacking->setPosition(iconX - backingInset, iconY - backingInset);
+      it.iconBacking->setRadius(backingSize * 0.5F);
+    }
   }
 }
 
@@ -1309,7 +1347,7 @@ bool WorkspacesWidget::shouldShowWorkspaceIcon(const Workspace& workspace) const
 }
 
 float WorkspacesWidget::focusedPillIconSize() const noexcept {
-  return Style::baseGlyphSize * 0.75F * m_contentScale * m_pillScale;
+  return Style::baseGlyphSize * 0.85F * m_contentScale * m_pillScale;
 }
 
 float WorkspacesWidget::focusedPillDotSize() const noexcept {
